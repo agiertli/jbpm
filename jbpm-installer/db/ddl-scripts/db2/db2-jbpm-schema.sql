@@ -280,6 +280,7 @@
         businessKey varchar(255),
         message varchar(255),
         owner varchar(255),
+        priority integer not null,
         requestData blob(2147483647),
         responseData blob(2147483647),
         retries integer not null,
@@ -365,7 +366,7 @@
         processInstanceId bigint,
         taskId bigint,
         type integer,
-        value varchar(5000),
+        value varchar(4000),
         primary key (id)
     );
 
@@ -730,3 +731,11 @@
     create index IDX_PInstLog_start_date on ProcessInstanceLog(start_date);
     create index IDX_PInstLog_status on ProcessInstanceLog(status);
     create index IDX_PInstLog_correlation on ProcessInstanceLog(correlationKey);
+
+    create index IDX_VInstLog_pInstId on VariableInstanceLog(processInstanceId);
+    create index IDX_VInstLog_varId on VariableInstanceLog(variableId);
+    create index IDX_VInstLog_pId on VariableInstanceLog(processId);
+
+    create index IDX_NInstLog_pInstId on NodeInstanceLog(processInstanceId);
+    create index IDX_NInstLog_nodeType on NodeInstanceLog(nodeType);
+    create index IDX_NInstLog_pId on NodeInstanceLog(processId);

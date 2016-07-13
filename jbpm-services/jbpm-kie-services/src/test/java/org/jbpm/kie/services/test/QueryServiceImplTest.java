@@ -16,6 +16,7 @@
 
 package org.jbpm.kie.services.test;
 
+import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_PROCESSINSTANCEID;
 import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_PROCESSID;
 import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_PROCESSNAME;
 import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_STATUS;
@@ -51,6 +52,7 @@ import org.jbpm.kie.services.impl.query.mapper.UserTaskInstanceWithCustomVarsQue
 import org.jbpm.kie.services.impl.query.mapper.UserTaskInstanceWithVarsQueryMapper;
 import org.jbpm.kie.services.test.objects.TestQueryParamBuilderFactory;
 import org.jbpm.kie.test.util.AbstractKieServicesBaseTest;
+import org.jbpm.runtime.manager.impl.deploy.DeploymentDescriptorImpl;
 import org.jbpm.services.api.ProcessInstanceNotFoundException;
 import org.jbpm.services.api.model.DeploymentUnit;
 import org.jbpm.services.api.model.ProcessInstanceDesc;
@@ -65,6 +67,7 @@ import org.jbpm.services.api.query.model.QueryDefinition;
 import org.jbpm.services.api.query.model.QueryDefinition.Target;
 import org.jbpm.services.api.query.model.QueryParam;
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.kie.api.KieServices;
@@ -73,6 +76,7 @@ import org.kie.api.runtime.manager.RuntimeManager;
 import org.kie.api.runtime.process.ProcessInstance;
 import org.kie.api.runtime.query.QueryContext;
 import org.kie.api.task.model.TaskSummary;
+import org.kie.internal.runtime.conf.DeploymentDescriptor;
 import org.kie.internal.runtime.manager.InternalRuntimeManager;
 import org.kie.scanner.MavenRepository;
 import org.slf4j.Logger;
@@ -107,8 +111,16 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         processes.add("repo/processes/general/BPMN2-UserTask.bpmn2");
         processes.add("repo/processes/general/SimpleHTProcess.bpmn2");
         processes.add("repo/processes/general/AdHocSubProcess.bpmn2");
+        
+        DeploymentDescriptor customDescriptor = new DeploymentDescriptorImpl("org.jbpm.domain");
+        customDescriptor.getBuilder()
+        .addRequiredRole("view:managers");
+        
+        Map<String, String> resources = new HashMap<String, String>();
+        resources.put("src/main/resources/" + DeploymentDescriptor.META_INF_LOCATION, customDescriptor.toXml());
+        
 
-        InternalKieModule kJar1 = createKieJar(ks, releaseId, processes);
+        InternalKieModule kJar1 = createKieJar(ks, releaseId, processes, resources);
         File pom = new File("target/kmodule", "pom.xml");
         pom.getParentFile().mkdir();
         try {
@@ -139,7 +151,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         File kjarJPA = new File("src/test/resources/kjar-jpa/persistence-test.jar");
         File pomJPA = new File("src/test/resources/kjar-jpa/pom.xml");
         
-        repository.deployArtifact(releaseIdJPA, kjarJPA, pomJPA);
+        repository.installArtifact(releaseIdJPA, kjarJPA, pomJPA);
         
         deploymentUnitJPA = new KModuleDeploymentUnit("org.jbpm.test", "persistence-test", "1.0.0");
     }
@@ -379,7 +391,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         assertEquals(1, taskInstanceLogs.size());
 
         UserTaskInstanceWithVarsDesc instance = taskInstanceLogs.get(0); 
-        assertEquals(5, instance.getVariables().size());
+        assertEquals(3, instance.getVariables().size());
         
         taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceWithVarsQueryMapper.get(), new QueryContext(), 
                                                             QueryParam.equalsTo(COLUMN_TASK_VAR_NAME, "Comment"), 
@@ -404,10 +416,13 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
     public void testGetTaskInstancesAsPotOwners() {
         
         query = new SqlQueryDefinition("getMyTaskInstances", dataSourceJNDIname, Target.PO_TASK);
-        query.setExpression("select ti.*, oe.id OEID from AuditTaskImpl ti,"
-                        + "PeopleAssignments_PotOwners po, "
-                        + "OrganizationalEntity oe "
-                        + "where ti.taskId = po.task_id and po.entity_id = oe.id ");
+        query.setExpression("select ti.activationTime, ti.actualOwner, ti.createdBy, ti.createdOn, ti.deploymentId, "
+                + "ti.description, ti.dueDate, ti.name, ti.parentId, ti.priority, ti.processId, ti.processInstanceId, "
+                + "ti.processSessionId, ti.status, ti.taskId, ti.workItemId,  oe.id "
+                + "from AuditTaskImpl ti,"
+                +      "PeopleAssignments_PotOwners po, "
+                +      "OrganizationalEntity oe "
+                + "where ti.taskId = po.task_id and po.entity_id = oe.id ");
         
         queryService.registerQuery(query);
         
@@ -459,10 +474,13 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
     public void testGetTaskInstancesAsBA() {
         
         query = new SqlQueryDefinition("getBATaskInstances", dataSourceJNDIname, Target.BA_TASK);
-        query.setExpression("select ti.*, oe.id OEID from AuditTaskImpl ti,"
-                        + "PeopleAssignments_BAs bas, "
-                        + "OrganizationalEntity oe "
-                        + "where ti.taskId = bas.task_id and bas.entity_id = oe.id ");
+        query.setExpression( "select ti.activationTime, ti.actualOwner, ti.createdBy, ti.createdOn, ti.deploymentId, "
+                + "ti.description, ti.dueDate, ti.name, ti.parentId, ti.priority, ti.processId, ti.processInstanceId, "
+                + "ti.processSessionId, ti.status, ti.taskId, ti.workItemId,  oe.id "
+                + "from AuditTaskImpl ti,"
+                +      "PeopleAssignments_BAs bas, "
+                +      "OrganizationalEntity oe "
+                + "where ti.taskId = bas.task_id and bas.entity_id = oe.id ");
         
         queryService.registerQuery(query);
         
@@ -719,6 +737,334 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         
         processService.abortProcessInstance(processInstanceId);
         processInstanceId = null;        
+    }
+    
+    @Test
+    public void testGetProcessInstancesWithRawMapperMultipleRows() {
+        
+        query = new SqlQueryDefinition("getAllProcessInstances", dataSourceJNDIname);
+        query.setExpression("select * from processinstancelog");
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+        
+        QueryDefinition registeredQuery = queries.get(0);
+        assertNotNull(registeredQuery);
+        assertEquals(query.getName(), registeredQuery.getName());
+        assertEquals(query.getSource(), registeredQuery.getSource());
+        assertEquals(query.getExpression(), registeredQuery.getExpression());
+        assertEquals(query.getTarget(), registeredQuery.getTarget());
+        
+        registeredQuery = queryService.getQuery(query.getName());
+        
+        assertNotNull(registeredQuery);
+        assertEquals(query.getName(), registeredQuery.getName());
+        assertEquals(query.getSource(), registeredQuery.getSource());
+        assertEquals(query.getExpression(), registeredQuery.getExpression());
+        assertEquals(query.getTarget(), registeredQuery.getTarget());
+        
+        List<List<Object>> instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext());
+        assertNotNull(instances);
+        assertEquals(0, instances.size());
+
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument");
+        assertNotNull(processInstanceId);
+        Long processInstanceId2 = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument");
+        assertNotNull(processInstanceId2);
+
+        instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext());
+        assertNotNull(instances);
+        assertEquals(2, instances.size());
+        
+        List<Object> firstRow = instances.get(0);
+        assertNotNull(firstRow);
+        
+        assertEquals(15, firstRow.size());
+        
+        List<Object> secondRow = instances.get(1);
+        assertNotNull(secondRow);
+        
+        assertEquals(15, secondRow.size());
+        
+        Assert.assertNotEquals(firstRow, secondRow);
+        
+        processService.abortProcessInstance(processInstanceId2);
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;        
+    }
+    
+    @Test
+    public void testGetProcessInstancesCount() {
+        
+        query = new SqlQueryDefinition("getAllProcessInstances", dataSourceJNDIname);
+        query.setExpression("select * from processinstancelog");
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+        
+        
+        Collection<List<Object>> instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext(),
+                                                                                 QueryParam.count(COLUMN_PROCESSINSTANCEID));
+        assertNotNull(instances);
+        assertEquals(1, instances.size());
+        
+        List<Object> result = instances.iterator().next();
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        
+        assertTrue(result.get(0) instanceof Number);
+        assertEquals(0, ((Number)result.get(0)).intValue());
+
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument");
+        assertNotNull(processInstanceId);
+
+        instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext(),
+                QueryParam.count(COLUMN_PROCESSINSTANCEID));
+        assertNotNull(instances);
+        assertEquals(1, instances.size());
+        
+        result = instances.iterator().next();
+        assertNotNull(result);
+        assertEquals(1, result.size());
+        
+        assertTrue(result.get(0) instanceof Number);
+        assertEquals(1, ((Number)result.get(0)).intValue());
+        
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;
+        
+    }
+    
+    @Test
+    public void testGetProcessInstancesCountAndGroup() {
+        
+        query = new SqlQueryDefinition("getAllProcessInstances", dataSourceJNDIname);
+        query.setExpression("select * from processinstancelog");
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+        
+        QueryParam[] parameters = QueryParam.getBuilder()
+                    .append(QueryParam.groupBy(COLUMN_PROCESSNAME))                
+                    .append(QueryParam.count(COLUMN_PROCESSINSTANCEID))
+                    .get();
+        
+        Collection<List<Object>> instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext(), parameters);
+        assertNotNull(instances);
+        assertEquals(0, instances.size());
+        
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument");
+        assertNotNull(processInstanceId);
+        
+        long processInstanceId2 = processService.startProcess(deploymentUnit.getIdentifier(), "org.jboss.qa.bpms.HumanTask");
+
+        instances = queryService.query(query.getName(), RawListQueryMapper.get(), new QueryContext(), parameters);
+        assertNotNull(instances);
+        assertEquals(2, instances.size());
+        // write document process
+        List<Object>result = instances.iterator().next();
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        
+        assertTrue(result.get(1) instanceof Number);
+        assertEquals(1, ((Number)result.get(1)).intValue());
+        
+        // org.jboss.qa.bpms.HumanTask task process
+        result = instances.iterator().next();
+        assertNotNull(result);
+        assertEquals(2, result.size());
+        
+        assertTrue(result.get(1) instanceof Number);
+        assertEquals(1, ((Number)result.get(1)).intValue());
+        
+        processService.abortProcessInstance(processInstanceId2);
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;
+        
+    }
+    
+    @Test
+    public void testGetFilteredProcessInstances() {
+        
+        // let's grant managers role so process can be started
+        List<String> roles = new ArrayList<String>();
+        roles.add("managers");
+        identityProvider.setRoles(roles);
+        
+        query = new SqlQueryDefinition("getAllProcessInstances", dataSourceJNDIname, Target.FILTERED_PROCESS);
+        query.setExpression("select * from processinstancelog");
+        
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+
+        QueryDefinition registeredQuery = queryService.getQuery(query.getName());
+        
+        assertNotNull(registeredQuery);
+        assertEquals(query.getName(), registeredQuery.getName());
+        assertEquals(query.getSource(), registeredQuery.getSource());
+        assertEquals(query.getExpression(), registeredQuery.getExpression());
+        assertEquals(query.getTarget(), registeredQuery.getTarget());
+        
+        Collection<ProcessInstanceDesc> instances = queryService.query(query.getName(), ProcessInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(instances);
+        assertEquals(0, instances.size());
+
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument");
+        assertNotNull(processInstanceId);
+
+        instances = queryService.query(query.getName(), ProcessInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(instances);
+        assertEquals(1, instances.size());
+        assertEquals(1, (int)instances.iterator().next().getState());
+        
+        // let's now change the roles so user should not see instances
+        roles.clear();
+        roles.add("employees");
+        identityProvider.setRoles(roles);
+        identityProvider.setName("anotherUser2");
+ 
+        instances = queryService.query(query.getName(), ProcessInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(instances);
+        assertEquals(0, instances.size());
+    }
+    
+    @Test
+    public void testGetFilteredTaskInstancesAsPotOwners() {
+        
+        // let's grant managers role so process can be started
+        List<String> roles = new ArrayList<String>();
+        roles.add("managers");
+        identityProvider.setRoles(roles);
+        
+        query = new SqlQueryDefinition("getMyTaskInstances", dataSourceJNDIname, Target.FILTERED_PO_TASK);
+        query.setExpression("select ti.activationTime, ti.actualOwner, ti.createdBy, ti.createdOn, ti.deploymentId, "
+                + "ti.description, ti.dueDate, ti.name, ti.parentId, ti.priority, ti.processId, ti.processInstanceId, "
+                + "ti.processSessionId, ti.status, ti.taskId, ti.workItemId,  oe.id "
+                + "from AuditTaskImpl ti,"
+                +      "PeopleAssignments_PotOwners po, "
+                +      "OrganizationalEntity oe "
+                + "where ti.taskId = po.task_id and po.entity_id = oe.id ");
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+  
+        QueryDefinition registeredQuery = queryService.getQuery(query.getName());
+        
+        assertNotNull(registeredQuery);
+        assertEquals(query.getName(), registeredQuery.getName());
+        assertEquals(query.getSource(), registeredQuery.getSource());
+        assertEquals(query.getExpression(), registeredQuery.getExpression());
+        assertEquals(query.getTarget(), registeredQuery.getTarget());
+        
+        Map<String, Object> params = new HashMap<String, Object>();
+        params.put("approval_document", "initial content");
+        
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument", params);
+        assertNotNull(processInstanceId);
+        
+        identityProvider.setName("salaboy");
+        
+        List<UserTaskInstanceDesc> taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(taskInstanceLogs);
+        assertEquals(1, taskInstanceLogs.size());    
+        
+        List<TaskSummary> taskSummaries = queryService.query(query.getName(), TaskSummaryQueryMapper.get(), new QueryContext());
+        assertNotNull(taskSummaries);
+        assertEquals(1, taskSummaries.size());
+        
+        // let's now change the roles so user should not see instances
+        roles.clear();
+        roles.add("employees");
+        identityProvider.setRoles(roles);
+        identityProvider.setName("anotherUser");
+        
+        taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(taskInstanceLogs);
+        assertEquals(0, taskInstanceLogs.size());    
+        
+        taskSummaries = queryService.query(query.getName(), TaskSummaryQueryMapper.get(), new QueryContext());
+        assertNotNull(taskSummaries);
+        assertEquals(0, taskSummaries.size());
+        
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;
+    }
+    
+    @Test
+    public void testGetFilteredTaskInstancesAsBA() {
+        // let's grant managers role so process can be started
+        List<String> roles = new ArrayList<String>();
+        roles.add("managers");
+        identityProvider.setRoles(roles);
+        
+        query = new SqlQueryDefinition("getBATaskInstances", dataSourceJNDIname, Target.FILTERED_BA_TASK);
+        query.setExpression( "select ti.activationTime, ti.actualOwner, ti.createdBy, ti.createdOn, ti.deploymentId, "
+                + "ti.description, ti.dueDate, ti.name, ti.parentId, ti.priority, ti.processId, ti.processInstanceId, "
+                + "ti.processSessionId, ti.status, ti.taskId, ti.workItemId,  oe.id "
+                + "from AuditTaskImpl ti,"
+                +      "PeopleAssignments_BAs bas, "
+                +      "OrganizationalEntity oe "
+                + "where ti.taskId = bas.task_id and bas.entity_id = oe.id ");
+        
+        queryService.registerQuery(query);
+        
+        List<QueryDefinition> queries = queryService.getQueries(new QueryContext());
+        assertNotNull(queries);
+        assertEquals(1, queries.size());
+        
+        QueryDefinition registeredQuery = queryService.getQuery(query.getName());
+        
+        assertNotNull(registeredQuery);
+        assertEquals(query.getName(), registeredQuery.getName());
+        assertEquals(query.getSource(), registeredQuery.getSource());
+        assertEquals(query.getExpression(), registeredQuery.getExpression());
+        assertEquals(query.getTarget(), registeredQuery.getTarget());
+        
+        Map<String, Object> params = new HashMap<String, Object>();
+        params.put("approval_document", "initial content");
+        
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument", params);
+        assertNotNull(processInstanceId);
+
+        List<UserTaskInstanceDesc> taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(taskInstanceLogs);
+        assertEquals(0, taskInstanceLogs.size());             
+        
+        identityProvider.setName("salaboy");
+        identityProvider.setRoles(Arrays.asList("Administrators", "managers"));
+        
+        taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(taskInstanceLogs);
+        assertEquals(1, taskInstanceLogs.size());
+        
+        // let's now change the roles so user should not see instances
+        roles.clear();
+        roles.add("employees");
+        identityProvider.setRoles(roles);
+        identityProvider.setName("Administrator");
+        // even though it's Administrator it has no access to deployment
+        taskInstanceLogs = queryService.query(query.getName(), UserTaskInstanceQueryMapper.get(), new QueryContext());
+        assertNotNull(taskInstanceLogs);
+        assertEquals(0, taskInstanceLogs.size());
+        
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;
     }
     
     protected void setFieldValue(Object instance, String fieldName, Object value) {

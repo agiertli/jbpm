@@ -6,7 +6,7 @@ create table TaskVariableImpl (
     processInstanceId number(19,0),
     taskId number(19,0),
     type number(10,0),
-    value long,
+    value varchar2(4000 char),
     primary key (id)
 );
 create sequence TASK_VAR_ID_SEQ;
@@ -22,5 +22,5 @@ create table QueryDefinitionStore (
 
 alter table QueryDefinitionStore 
         add constraint UK_4ry5gt77jvq0orfttsoghta2j unique (qName);
-        
-create sequence QUERY_DEF_ID_SEQ;        
+
+create sequence QUERY_DEF_ID_SEQ;

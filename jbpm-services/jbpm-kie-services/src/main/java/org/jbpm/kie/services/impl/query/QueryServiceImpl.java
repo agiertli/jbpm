@@ -17,6 +17,8 @@
 package org.jbpm.kie.services.impl.query;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,15 +30,22 @@ import org.dashbuilder.dataset.DataSet;
 import org.dashbuilder.dataset.DataSetLookupBuilder;
 import org.dashbuilder.dataset.DataSetLookupFactory;
 import org.dashbuilder.dataset.DataSetManager;
+import org.dashbuilder.dataset.DataSetMetadata;
 import org.dashbuilder.dataset.def.DataSetDef;
 import org.dashbuilder.dataset.def.DataSetDefFactory;
 import org.dashbuilder.dataset.def.DataSetDefRegistry;
 import org.dashbuilder.dataset.def.SQLDataSetDefBuilder;
 import org.dashbuilder.dataset.filter.ColumnFilter;
+import org.jbpm.kie.services.impl.model.ProcessAssetDesc;
 import org.jbpm.kie.services.impl.query.persistence.PersistDataSetListener;
 import org.jbpm.kie.services.impl.query.persistence.QueryDefinitionEntity;
 import org.jbpm.kie.services.impl.query.preprocessor.BusinessAdminTasksPreprocessor;
+import org.jbpm.kie.services.impl.query.preprocessor.DeploymentIdsPreprocessor;
 import org.jbpm.kie.services.impl.query.preprocessor.PotOwnerTasksPreprocessor;
+import org.jbpm.kie.services.impl.security.DeploymentRolesManager;
+import org.jbpm.services.api.DeploymentEvent;
+import org.jbpm.services.api.DeploymentEventListener;
+import org.jbpm.services.api.model.DeployedAsset;
 import org.jbpm.services.api.query.QueryAlreadyRegisteredException;
 import org.jbpm.services.api.query.QueryNotFoundException;
 import org.jbpm.services.api.query.QueryParamBuilder;
@@ -53,8 +62,11 @@ import org.kie.internal.identity.IdentityProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_EXTERNALID;
+import static org.jbpm.services.api.query.QueryResultMapper.COLUMN_DEPLOYMENTID;;
 
-public class QueryServiceImpl implements QueryService {
+
+public class QueryServiceImpl implements QueryService, DeploymentEventListener {
     
     private static final Logger logger = LoggerFactory.getLogger(QueryServiceImpl.class);
 
@@ -65,6 +77,13 @@ public class QueryServiceImpl implements QueryService {
     
     private IdentityProvider identityProvider;
     private TransactionalCommandService commandService;
+    
+    private DeploymentRolesManager deploymentRolesManager = new DeploymentRolesManager();
+
+    
+    public void setDeploymentRolesManager(DeploymentRolesManager deploymentRolesManager) {
+        this.deploymentRolesManager = deploymentRolesManager;
+    }
 
     public void setIdentityProvider(IdentityProvider identityProvider) {
         this.identityProvider = identityProvider;
@@ -139,15 +158,26 @@ public class QueryServiceImpl implements QueryService {
             
             DataSetDef sqlDef = builder.buildDef();
             
-            
             dataSetDefRegistry.registerDataSetDef(sqlDef);
             
             if (queryDefinition.getTarget().equals(Target.BA_TASK)) {
                 dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new BusinessAdminTasksPreprocessor(identityProvider));
             } else if (queryDefinition.getTarget().equals(Target.PO_TASK)) {
                 dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new PotOwnerTasksPreprocessor(identityProvider));
+            } else if (queryDefinition.getTarget().equals(Target.FILTERED_PROCESS)) {
+                dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new DeploymentIdsPreprocessor(deploymentRolesManager, identityProvider, COLUMN_EXTERNALID));
+            } else if (queryDefinition.getTarget().equals(Target.FILTERED_BA_TASK)) {
+                dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new BusinessAdminTasksPreprocessor(identityProvider));
+                dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new DeploymentIdsPreprocessor(deploymentRolesManager, identityProvider, COLUMN_DEPLOYMENTID));
+            } else if (queryDefinition.getTarget().equals(Target.FILTERED_PO_TASK)) {
+                dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new PotOwnerTasksPreprocessor(identityProvider));
+                dataSetDefRegistry.registerPreprocessor(sqlDef.getUUID(), new DeploymentIdsPreprocessor(deploymentRolesManager, identityProvider, COLUMN_DEPLOYMENTID));
             }
-            
+            DataSetMetadata metadata = dataSetManager.getDataSetMetadata(sqlDef.getUUID());
+            for (String columnId : metadata.getColumnIds()) {
+                sqlDef.addColumn(columnId, metadata.getColumnType(columnId));
+            }
+
             logger.info("Registered {} query successfully", queryDefinition.getName());
         }
 
@@ -184,8 +214,21 @@ public class QueryServiceImpl implements QueryService {
         .rowOffset(queryContext.getOffset());
         Object filter = paramBuilder.build();
         while (filter != null ) {
-            // add filter
-            builder.filter((ColumnFilter) filter);
+            if (filter instanceof ColumnFilter) {
+                // add filter
+                builder.filter((ColumnFilter) filter);
+            } else if (filter instanceof AggregateColumnFilter) {
+                // add aggregate function
+                builder.column(((AggregateColumnFilter) filter).getColumnId(), ((AggregateColumnFilter) filter).getType(), ((AggregateColumnFilter) filter).getColumnId());
+            } else if (filter instanceof GroupColumnFilter) {
+                // add group function
+                builder.group(((GroupColumnFilter) filter).getColumnId(), ((GroupColumnFilter) filter).getNewColumnId());
+            } else if (filter instanceof ExtraColumnFilter) {
+                // add extra column
+                builder.column(((ExtraColumnFilter) filter).getColumnId(), ((ExtraColumnFilter) filter).getNewColumnId());
+            } else {
+                logger.warn("Unsupported filter '{}' generated by '{}'", filter, paramBuilder);
+            }
             // call builder again in case more parameters are available
             filter = paramBuilder.build();
         }
@@ -250,5 +293,37 @@ public class QueryServiceImpl implements QueryService {
                 }
             }
         }
+    }
+    
+    public void onDeploy(DeploymentEvent event) {
+        Collection<DeployedAsset> assets = event.getDeployedUnit().getDeployedAssets();
+        List<String> roles = null;
+        for( DeployedAsset asset : assets ) {
+            if( asset instanceof ProcessAssetDesc ) {                
+                if (roles == null) {
+                    roles = ((ProcessAssetDesc) asset).getRoles();
+                }
+            }
+        }
+        if (roles == null) {
+            roles = Collections.emptyList();
+        }
+        deploymentRolesManager.addRolesForDeployment(event.getDeploymentId(), roles);
+    }
+
+    public void onUnDeploy(DeploymentEvent event) {
+
+        deploymentRolesManager.removeRolesForDeployment(event.getDeploymentId());
+    }
+
+    @Override
+    public void onActivate(DeploymentEvent event) {
+        // no op
+    }
+
+    @Override
+    public void onDeactivate(DeploymentEvent event) {
+        // no op
+        
     }
 }

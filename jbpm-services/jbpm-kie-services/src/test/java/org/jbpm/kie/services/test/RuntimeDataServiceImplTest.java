@@ -1326,7 +1326,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         statuses.add(Status.Reserved);
         
         String userId = "salaboy";
-        String varName = "TaskName";
+        String varName = "Comment";
         List<TaskSummary> tasksByVariable = runtimeDataService.taskSummaryQuery(userId)
                 .variableName(varName).build().getResultList();
         assertNotNull(tasksByVariable);
@@ -1349,7 +1349,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         statuses.add(Status.Reserved);
         
         String userId = "salaboy";
-        String varName = "TaskName";
+        String varName = "Comment";
         String varValue = "Write a Document";
         List<TaskSummary> tasksByVariable = runtimeDataService.taskSummaryQuery(userId)
                 .variableName(varName).and().variableValue(varValue).build().getResultList();
@@ -1386,7 +1386,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         assertEquals(1, tasks.size());
 
         String userId = "salaboy";
-        String varName = "TaskName";
+        String varName = "Comment";
         List<TaskSummary> tasksByVariable = runtimeDataService.getTasksByVariable(userId, varName, statuses, new QueryContext());
         assertNotNull(tasksByVariable);
         assertEquals(1, tasksByVariable.size());
@@ -1428,7 +1428,7 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
         assertEquals(1, tasks.size());
 
         String userId = "salaboy";
-        String varName = "TaskName";
+        String varName = "Comment";
         String varValue = "Write a Document";
         List<TaskSummary> tasksByVariable = runtimeDataService.getTasksByVariableAndValue(userId, varName, varValue, statuses, new QueryContext());
         assertNotNull(tasksByVariable);
@@ -1460,6 +1460,48 @@ private static final Logger logger = LoggerFactory.getLogger(KModuleDeploymentSe
 
         processService.abortProcessInstance(processInstanceId);
         processInstanceId = null;
+
+    }
+    
+    @Test
+    public void testGetTasksByVariableAndValueSorted() {
+        Map<String, Object> params = new HashMap<String, Object>();
+        params.put("approval_document", "initial content");
+        processInstanceId = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument", params);
+        assertNotNull(processInstanceId);
+        
+        Long processInstanceId2 = processService.startProcess(deploymentUnit.getIdentifier(), "org.jbpm.writedocument", params);
+        assertNotNull(processInstanceId2);
+        
+        List<Status> statuses = new ArrayList<Status>();
+        statuses.add(Status.Ready);
+        statuses.add(Status.Reserved);
+        
+        List<TaskSummary> tasks = runtimeDataService.getTasksAssignedAsPotentialOwnerByStatus("salaboy", statuses, new QueryFilter());
+        assertNotNull(tasks);
+        assertEquals(2, tasks.size());
+
+        String userId = "salaboy";
+        String varName = "Comment";
+        String varValue = "Write a Document";
+        List<TaskSummary> tasksByVariable = runtimeDataService.getTasksByVariableAndValue(userId, varName, varValue, statuses, new QueryFilter(0, 10, "processInstanceId", true));
+        assertNotNull(tasksByVariable);
+        assertEquals(2, tasksByVariable.size());
+        
+        assertEquals(processInstanceId, tasksByVariable.get(0).getProcessInstanceId());
+        assertEquals(processInstanceId2, tasksByVariable.get(1).getProcessInstanceId());
+
+        tasksByVariable = runtimeDataService.getTasksByVariableAndValue(userId, varName, varValue, statuses, new QueryFilter(0, 10, "processInstanceId", false));
+        assertNotNull(tasksByVariable);
+        assertEquals(2, tasksByVariable.size());
+        
+        assertEquals(processInstanceId2, tasksByVariable.get(0).getProcessInstanceId());
+        assertEquals(processInstanceId, tasksByVariable.get(1).getProcessInstanceId());
+        
+
+        processService.abortProcessInstance(processInstanceId);
+        processInstanceId = null;
+        processService.abortProcessInstance(processInstanceId2);
 
     }
 }
